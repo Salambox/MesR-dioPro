@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Radio Premium - Ph.B</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        :root { --primary: #ff0055; --dark: #0f0f0f; --surface: #1a1a1a; --text: #ffffff; }
+        body { background-color: var(--dark); color: var(--text); font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        
+        .main-player {
+            background-color: var(--surface); width: 100%; max-width: 850px;
+            border-radius: 15px; padding: 15px 25px; display: flex; align-items: center; gap: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6); margin-bottom: 40px; position: sticky; top: 20px; z-index: 100; border: 1px solid #333;
+        }
+        .current-logo { width: 70px; height: 70px; border-radius: 12px; object-fit: cover; border: 2px solid var(--primary); }
+        .player-info { flex-grow: 1; }
+        .player-info h2 { margin: 0; font-size: 1.3rem; }
+        .player-info p { margin: 4px 0 0; color: var(--primary); font-weight: bold; font-size: 0.85rem; }
+        
+        .main-controls button { background: var(--primary); color: white; border: none; width: 55px; height: 55px; border-radius: 50%; font-size: 1.4rem; cursor: pointer; }
+        .settings-btn { background: none; border: none; color: #b0b0b0; font-size: 1.4rem; cursor: pointer; }
+
+        .radio-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 25px; width: 100%; max-width: 900px; }
+        .radio-card { background-color: var(--surface); border-radius: 12px; padding: 20px; text-align: center; cursor: pointer; border: 2px solid transparent; transition: 0.3s; }
+        .radio-card:hover { transform: translateY(-5px); background: #252525; }
+        .radio-card.active { border-color: var(--primary); background: #200a11; }
+        .radio-card img { width: 100px; height: 100px; border-radius: 10px; margin-bottom: 15px; object-fit: cover; background: #000; }
+        .radio-card h3 { font-size: 0.95rem; margin: 0; }
+
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 1000; justify-content: center; align-items: center; }
+        .modal.active { display: flex; }
+        .modal-content { background: var(--surface); width: 90%; max-width: 500px; max-height: 90vh; border-radius: 15px; padding: 25px; overflow-y: auto; border: 1px solid #444; }
+        .form-group { margin-bottom: 10px; }
+        .form-group label { display: block; font-size: 0.8rem; color: #888; margin-bottom: 5px; }
+        .form-group input { width: 100%; padding: 12px; background: #111; border: 1px solid #333; color: white; border-radius: 6px; box-sizing: border-box; }
+        
+        .manage-item { display: flex; justify-content: space-between; padding: 12px; border-bottom: 1px solid #333; align-items: center; }
+        .manage-actions button { background: none; border: none; cursor: pointer; margin-left: 15px; font-size: 1.1rem; }
+        .edit-btn { color: #0088ff; }
+        .delete-btn { color: #ff4444; }
+        .btn-main { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="main-player">
+        <img src="https://via.placeholder.com/150" id="mainLogo" class="current-logo">
+        <div class="player-info">
+            <h2 id="mainTitle">Sélectionnez une radio</h2>
+            <p id="mainStatus">PRÊT</p>
+        </div>
+        <div class="main-controls">
+            <button id="playBtn"><i class="fa-solid fa-play"></i></button>
+        </div>
+        <button class="settings-btn" id="openSettings"><i class="fa-solid fa-wrench"></i></button>
+    </div>
+
+    <div class="radio-grid" id="radioGrid"></div>
+    <audio id="audioPlayer"></audio>
+
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <h3 id="modalTitle" style="margin-top:0">Ajouter / Modifier une Radio</h3>
+            <input type="hidden" id="editIndex" value="-1">
+            <div class="form-group"><label>Nom de la station</label><input type="text" id="newLabel" placeholder="ex: Hotmix Gold"></div>
+            <div class="form-group"><label>URL du Flux (MP3 ou M3U8)</label><input type="text" id="newUrl" placeholder="http://..."></div>
+            <div class="form-group"><label>URL du Logo (Image)</label><input type="text" id="newLogo" placeholder="http://..."></div>
+            
+            <button onclick="saveRadio()" id="saveBtn" class="btn-main">ENREGISTRER</button>
+            <button onclick="cancelEdit()" id="cancelBtn" style="display:none; width:100%; margin-top:5px; padding:10px; background:#444; color:white; border:none; border-radius:6px; cursor:pointer;">Annuler modification</button>
+            
+            <div style="margin-top:25px; border-top: 2px solid #333; padding-top:15px;">
+                <h4 style="margin-bottom:10px; color:#888;">Liste des radios enregistrées</h4>
+                <div id="manageList"></div>
+            </div>
+
+            <button onclick="resetDefault()" style="width:100%; margin-top:20px; background:#222; color:#888; border:none; padding:10px; border-radius:6px; cursor:pointer; font-size:0.8rem;">Réinitialiser la liste d'origine</button>
+            <button id="closeSettings" style="width:100%; margin-top:10px; background:none; border:1px solid #444; color:white; padding:10px; border-radius:6px; cursor:pointer;">Fermer</button>
+        </div>
+    </div>
+
+    <script>
+        const hls = new Hls();
+        const audio = document.getElementById('audioPlayer');
+
+        // LES 9 RADIOS ORIGINALES COMPLÈTES
+        const defaultRadios = [
+            { label: "FlaixFM", url: "https://us-b4-p-e-nq15-audio.cdn.mdstrm.com/live-audio-aw/65afe4a0357cec56667ac739/playlist.m3u8", logo: "http://calidigy.free.fr/uploads/original/3a93c491-8515-ee3d-0fbe-b44667fd7d9d.png" },
+            { label: "Hotmix Country Hits", url: "https://streaming.hotmixradio.fr/hotmix-country-hits-en-pre", logo: "http://calidigy.free.fr/uploads/original/25300a2b-e826-4f6b-8179-a35af68a0312.png" },
+            { label: "Hotmix Gold 60s -70s", url: "https://streaming.hotmixradio.com/hotmix-gold-fr-pre", logo: "http://calidigy.free.fr/uploads/original/79b491bf-6543-4fa0-8f78-b1434b613d3c.png" },
+            { label: "Hotmix Pop Rock", url: "https://streaming.hotmixradio.fr/hotmix-pop-rock-en-pre", logo: "http://calidigy.free.fr/uploads/original/1c0fcc68-b0e1-4b80-84aa-7efdcb2eda41.png" },
+            { label: "Hotmix Acoustic Chill", url: "https://streaming.hotmixradio.com/hotmix-acoustic-en-pre", logo: "http://calidigy.free.fr/uploads/original/0bebd0e2-2a50-4329-b99b-ad3447cc1005.png" },
+            { label: "Hotmix Hits", url: "https://streaming.hotmixradio.com/hotmix-hits-fr-pre", logo: "http://calidigy.free.fr/uploads/original/359dba47-4879-4fac-ada7-deb58c998149.png" },
+            { label: "Hotmix Love", url: "https://streaming.hotmixradio.com/hotmix-love-en-pre", logo: "http://calidigy.free.fr/uploads/original/4375149a-8ae2-4cc2-aac6-68db8e6e077d.png" },
+            { label: "Hotmix New", url: "https://streaming.hotmixradio.com/hotmix-new-fr-pre", logo: "http://calidigy.free.fr/uploads/original/374895e7-56b4-45a6-a509-e8fac150efb3.png" },
+            { label: "Hotmix On The Road", url: "https://streaming.hotmixradio.fr/hotmix-on-the-road-en-pre", logo: "http://calidigy.free.fr/uploads/original/81537f11-b7be-4c7c-9005-7b61d82afb53.png" }
+        ];
+
+        let myRadios = JSON.parse(localStorage.getItem('radios_vFinal')) || defaultRadios;
+        let currentIdx = -1;
+
+        function render() {
+            const grid = document.getElementById('radioGrid');
+            const list = document.getElementById('manageList');
+            grid.innerHTML = ''; list.innerHTML = '';
+
+            myRadios.forEach((r, i) => {
+                const card = document.createElement('div');
+                card.className = `radio-card ${i === currentIdx ? 'active' : ''}`;
+                card.onclick = () => playRadio(i);
+                card.innerHTML = `<img src="${r.logo}" onerror="this.src='https://via.placeholder.com/150'"><h3>${r.label}</h3>`;
+                grid.appendChild(card);
+
+                const item = document.createElement('div');
+                item.className = 'manage-item';
+                item.innerHTML = `<span>${r.label}</span>
+                    <div class="manage-actions">
+                        <button class="edit-btn" onclick="editRadio(${i})"><i class="fa-solid fa-pen"></i></button>
+                        <button class="delete-btn" onclick="deleteRadio(${i})"><i class="fa-solid fa-trash"></i></button>
+                    </div>`;
+                list.appendChild(item);
+            });
+            localStorage.setItem('radios_vFinal', JSON.stringify(myRadios));
+        }
+
+        function playRadio(i) {
+            currentIdx = i;
+            const r = myRadios[i];
+            document.getElementById('mainTitle').innerText = r.label;
+            document.getElementById('mainLogo').src = r.logo;
+            document.getElementById('mainStatus').innerText = "CONNEXION...";
+            
+            if (r.url.includes('.m3u8')) {
+                if (Hls.isSupported()) {
+                    hls.loadSource(r.url); hls.attachMedia(audio);
+                    hls.on(Hls.Events.MANIFEST_PARSED, () => audio.play());
+                } else if (audio.canPlayType('application/vnd.apple.mpegurl')) {
+                    audio.src = r.url; audio.play();
+                }
+            } else {
+                hls.detachMedia(); audio.src = r.url; audio.play();
+            }
+            render();
+        }
+
+        function saveRadio() {
+            const label = document.getElementById('newLabel').value;
+            const url = document.getElementById('newUrl').value;
+            const logo = document.getElementById('newLogo').value;
+            const editIdx = parseInt(document.getElementById('editIndex').value);
+
+            if (!label || !url) return alert("Veuillez remplir au moins le nom et l'URL du flux.");
+
+            if (editIdx > -1) {
+                myRadios[editIdx] = { label, url, logo };
+            } else {
+                myRadios.push({ label, url, logo });
+            }
+            
+            cancelEdit();
+            render();
+        }
+
+        function editRadio(i) {
+            const r = myRadios[i];
+            document.getElementById('newLabel').value = r.label;
+            document.getElementById('newUrl').value = r.url;
+            document.getElementById('newLogo').value = r.logo;
+            document.getElementById('editIndex').value = i;
+            document.getElementById('saveBtn').innerText = "METTRE À JOUR";
+            document.getElementById('cancelBtn').style.display = "block";
+            document.getElementById('modalTitle').innerText = "Modification : " + r.label;
+            document.getElementById('settingsModal').scrollTop = 0;
+        }
+
+        function cancelEdit() {
+            document.getElementById('newLabel').value = '';
+            document.getElementById('newUrl').value = '';
+            document.getElementById('newLogo').value = '';
+            document.getElementById('editIndex').value = "-1";
+            document.getElementById('saveBtn').innerText = "ENREGISTRER";
+            document.getElementById('cancelBtn').style.display = "none";
+            document.getElementById('modalTitle').innerText = "Ajouter / Modifier une Radio";
+        }
+
+        function deleteRadio(i) { if(confirm("Supprimer définitivement ?")) { myRadios.splice(i,1); render(); } }
+        function resetDefault() { if(confirm("Ceci effacera vos modifications et restaurera les 9 radios d'origine. Continuer ?")) { myRadios = [...defaultRadios]; render(); } }
+
+        document.getElementById('playBtn').onclick = () => audio.paused ? audio.play() : audio.pause();
+        audio.onplay = () => { document.getElementById('playBtn').innerHTML = '<i class="fa-solid fa-pause"></i>'; document.getElementById('mainStatus').innerText = "LECTURE EN COURS"; };
+        audio.onpause = () => { document.getElementById('playBtn').innerHTML = '<i class="fa-solid fa-play"></i>'; document.getElementById('mainStatus').innerText = "PAUSE"; };
+        audio.onerror = () => document.getElementById('mainStatus').innerText = "ERREUR DE FLUX";
+
+        document.getElementById('openSettings').onclick = () => document.getElementById('settingsModal').classList.add('active');
+        document.getElementById('closeSettings').onclick = () => { document.getElementById('settingsModal').classList.remove('active'); cancelEdit(); };
+
+        render();
+    </script>
+</body>
+</html>
